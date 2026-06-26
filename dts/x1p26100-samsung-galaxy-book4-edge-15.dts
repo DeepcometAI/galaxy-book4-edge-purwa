@@ -1,0 +1,318 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Samsung Galaxy Book4 Edge 15.6" (X1P-26-100 / SM8380 Purwa die)
+ *
+ * Copyright (c) 2026 NehalAditya <your-email@domain.com>
+ *
+ * Derived from:
+ *   - arch/arm64/boot/dts/qcom/x1p42100.dtsi  (Purwa SoC base)
+ *   - arch/arm64/boot/dts/qcom/x1e80100-samsung-galaxy-book4-edge.dts (board template)
+ *
+ * Hardware identified from ACPI tables:
+ *   DSDT: SDM8380 / QCOMEDK2 / PSUB=CRD08380 / SIDS=SCP_PURWA
+ *   PPTT: 3 clusters, 12 CPU objects (8 enabled, 4 disabled = true 8-core device)
+ *   MADT: 8 enabled CPUs (Efficiency Class 0: 4 cores, Class 1: 4 cores)
+ *         4 disabled CPUs (MPIDR 0x020000-0x020300, Class 1) — fused off
+ *   MCFG: 8 PCIe segments (seg 0-7)
+ *   IORT: SMMU-500 at 0x15000000
+ *   GTDT: ARM generic timer, standard Qualcomm interrupts
+ */
+
+/dts-v1/;
+
+/*
+ * NOTE: x1p26100.dtsi does not yet exist upstream. Use x1p42100.dtsi
+ * as the SoC base — same Purwa die, same topology. The 4 disabled CPUs
+ * (cluster 2, MPIDR 0x020x00) are confirmed by MADT Processor Enabled=0.
+ * Delete those nodes from the Purwa DTSI include below.
+ */
+#include "x1p42100.dtsi"
+/* TODO: when x1p26100.dtsi lands, switch the include above */
+
+/ {
+	model = "Samsung Galaxy Book4 Edge 15.6 (X1P-26-100)";
+	compatible = "samsung,galaxy-book4-edge-15-x1p26100", "qcom,sm8380";
+	chassis-type = "laptop";
+
+	aliases {
+		serial0 = &uart15;         /* UR15 — Bluetooth UART */
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+};
+
+/*
+ * ============================================================
+ * CPU TOPOLOGY — confirmed from MADT (apic.dsl)
+ * ============================================================
+ *
+ * 12 MADT GIC CPU entries, 3 clusters x 4 cores:
+ *
+ * Cluster 0 (Efficiency Class 0 — "efficiency" / little cores):
+ *   CPU0  MPIDR 0x0000  Enabled  GICR @ 0x17080000
+ *   CPU1  MPIDR 0x0100  Enabled  GICR @ 0x170C0000
+ *   CPU2  MPIDR 0x0200  Enabled  GICR @ 0x17100000
+ *   CPU3  MPIDR 0x0300  Enabled  GICR @ 0x17140000
+ *
+ * Cluster 1 (Efficiency Class 1 — "performance" / big cores):
+ *   CPU4  MPIDR 0x010000  Enabled  GICR @ 0x17180000
+ *   CPU5  MPIDR 0x010100  Enabled  GICR @ 0x171C0000
+ *   CPU6  MPIDR 0x010200  Enabled  GICR @ 0x17200000
+ *   CPU7  MPIDR 0x010300  Enabled  GICR @ 0x17240000
+ *
+ * Cluster 2 (Efficiency Class 1 — FUSED OFF in firmware):
+ *   CPU8  MPIDR 0x020000  DISABLED  GICR @ 0x17280000
+ *   CPU9  MPIDR 0x020100  DISABLED  GICR @ 0x172C0000
+ *   CPU10 MPIDR 0x020200  DISABLED  GICR @ 0x17300000
+ *   CPU11 MPIDR 0x020300  DISABLED  GICR @ 0x17340000
+ *
+ * This confirms X1P-26-100 = same 12-core Purwa silicon, 4 cores
+ * fused off at the firmware level → true 8-active-core device.
+ * The x1p42100.dtsi (8-core) may NOT match — check if it includes
+ * all 12 MPIDR slots or only 8. May need to use x1e80100.dtsi CPU
+ * topology and delete cluster 2 nodes, keeping cluster 0+1 only.
+ *
+ * DTS cpu-map should describe only the 8 enabled cores:
+ */
+
+/* Override cpu-map from SoC DTSI to reflect 8-core (2 cluster) topology */
+&cpu_map {
+	cluster0 {
+		core0 { cpu = <&cpu0>; };
+		core1 { cpu = <&cpu1>; };
+		core2 { cpu = <&cpu2>; };
+		core3 { cpu = <&cpu3>; };
+	};
+	cluster1 {
+		core0 { cpu = <&cpu4>; };
+		core1 { cpu = <&cpu5>; };
+		core2 { cpu = <&cpu6>; };
+		core3 { cpu = <&cpu7>; };
+	};
+};
+
+/* Delete the disabled cluster 2 CPUs from parent DTSI */
+/delete-node/ &cpu8;
+/delete-node/ &cpu9;
+/delete-node/ &cpu10;
+/delete-node/ &cpu11;
+
+/*
+ * ============================================================
+ * GIC-600 — confirmed from MADT (apic.dsl)
+ * ============================================================
+ * GICD base:  0x17000000  (from Generic Interrupt Distributor entry)
+ * GITS base:  0x17040000  (from Generic Interrupt Translator entry)
+ * GICR bases: 0x17080000 per CPU, stride 0x40000
+ *             CPU0:  0x17080000
+ *             CPU1:  0x170C0000
+ *             CPU2:  0x17100000
+ *             CPU3:  0x17140000
+ *             CPU4:  0x17180000
+ *             CPU5:  0x171C0000
+ *             CPU6:  0x17200000
+ *             CPU7:  0x17240000
+ *             (CPU8-11 disabled, GICR @ 0x17280000-0x17340000 unused)
+ * GIC version: 4 (from MADT distributor entry)
+ */
+
+/*
+ * ============================================================
+ * ARM GENERIC TIMER — confirmed from GTDT (gtdt.dsl)
+ * ============================================================
+ * Secure EL1:     IRQ 29 (0x1D)  always-on
+ * Non-Secure EL1: IRQ 30 (0x1E)  always-on
+ * Virtual Timer:  IRQ 27 (0x1B)  always-on
+ * Non-Secure EL2: IRQ 26 (0x1A)  always-on
+ *
+ * DTS timer node (matches standard Qualcomm ARM timer):
+ *   interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW>,  // secure EL1 (29-16=13)
+ *                <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW>,  // non-secure EL1 (30-16=14)
+ *                <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW>,  // virtual (27-16=11)
+ *                <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW>;  // hypervisor (26-16=10)
+ */
+
+/*
+ * ============================================================
+ * PCIe SEGMENTS — confirmed from MCFG (mcfg.dsl)
+ * ============================================================
+ * Seg 0: ECAM @ 0x400000000   bus 0x00-0xFF  (large — likely NVMe or general)
+ * Seg 1: ECAM @ 0x500000000   bus 0x00-0xFF
+ * Seg 2: ECAM @ 0x6000000000  bus 0x00-0xFF  (very high address)
+ * Seg 3: ECAM @ 0x740000000   bus 0x00-0x01
+ * Seg 4: ECAM @ 0x7C000000    bus 0x00-0x01
+ * Seg 5: ECAM @ 0x7E000000    bus 0x00-0x01
+ * Seg 6: ECAM @ 0x70000000    bus 0x00-0x01  ← NVMe (PCI6.RP1.NVME in DSDT)
+ * Seg 7: ECAM @ 0x74000000    bus 0x00-0x01  ← WiFi/BT (WLTM dep PCI6→seg7?)
+ *
+ * Cross-ref with DSDT: PCI6 (_UID=6, _SEG=6), PCI7 (_UID=7, _SEG=7)
+ * SMMU at 0x15000000 handles IOMMU for these segments (from IORT).
+ */
+
+/*
+ * ============================================================
+ * SMMU-500 — confirmed from IORT (iort.dsl)
+ * ============================================================
+ * Primary SMMU:   0x15000000  span 0x100000  (model 3 = SMMU-500)
+ * Secondary:      0x03DA0000
+ * Tertiary:       0x15400000
+ */
+
+/*
+ * ============================================================
+ * STORAGE
+ * ============================================================
+ * UFS0: HID QCOM24A5, base 0x01D84000 (from DSDT RBUF)
+ *       _UID=0, eUFS — Purwa uses same UFS controller as x1p42100
+ * SDC2: HID QCOM2466, _UID=1 — SD card slot
+ */
+
+/*
+ * ============================================================
+ * AUDIO — Samsung-specific codec
+ * ============================================================
+ * SlimBus controller: SLM1
+ * Audio codec: AUCD, _SUB=CA09144D, child "AUCD\SAMM0851"
+ * SAMM0851 = Samsung custom WCD variant (not standard WCD939x)
+ * This codec binding likely does NOT exist upstream yet.
+ * Will need new DT binding: samsung,samm0851 or qcom,wcd9385-samsung
+ * GPIO assignments from DSDT AUCD _CRS:
+ *   GPIO 0xBF (191) — codec reset?
+ *   GPIO 0xCC (204) — codec interrupt?
+ *   GPIO 0x1C0 (448) — codec enable?
+ */
+
+/*
+ * ============================================================
+ * INPUT DEVICES
+ * ============================================================
+ * Keyboard: ECKB, HID=SSEC0001, CID=PNP0C50 (HID over I2C)
+ *   Bus: I2C1, I2C addr from _CRS: 0x05 (from I2CSerialBus resource)
+ *   GPIO from _CRS: 0x80 (128) interrupt pin
+ *   Samsung Embedded Controller keyboard — needs samsung-ec-hid driver
+ *
+ * Touchpad: likely also on I2C — check I2C2 or I2C3 for HID device
+ *   (DSDT shows TPDF/TPDA/TPDO fields in \_SB scope)
+ */
+
+/*
+ * ============================================================
+ * USB
+ * ============================================================
+ * USB3:  HID QCOM0D08, _UID=3, connected to IC19 (I2C7) retimer
+ * USB4:  HID QCOM0D09, _UID=4, connected to IC19 (I2C7) retimer
+ * USB0/1: Standard USB controllers on USB sub-devices
+ *
+ * USB-C retimer: IC19 on I2C7 — exact chip TBD
+ *   (from USB3 _CRS: references \_SB.IC19)
+ *   Likely PS8833 or similar — check Windows driver INF
+ */
+
+/*
+ * ============================================================
+ * CONNECTIVITY
+ * ============================================================
+ * WiFi: WLTM, HID QCOM0CD5, PCIe segment 6 (pci6)
+ *       Qualcomm WCN chipset — exact model TBD from PCI vendor ID
+ * Bluetooth: BTH0, HID QCOM0C6B, UART on UR15
+ *            UR15 = QCOM0C16, _UID=0xF
+ * WWAN: WWAN, HID QCOM0CDA — 5G modem present (Snapdragon X modem)
+ *       dep on PM01 and GIO0
+ */
+
+/*
+ * ============================================================
+ * POWER / THERMAL
+ * ============================================================
+ * PMIC: QCOM0C2B, on SPMI bus — PM8380 family (matches sm8380)
+ * Battery: BATC, Li-Ion, Samsung Electronics, via ECTC+EMEC (Samsung EC)
+ *   Design capacity from BIXP: 0x17318 = 94,996 mWh ≈ 95Wh
+ *   Voltage nominal: 0x88b8 = 35,000 mV = 35V? (likely in 10mV units → 8.7V)
+ *   Actual: Samsung GB4E has ~61.4Wh — BIXP values need mWh unit check
+ * Fan: FAN0, 4 trip points: 0xAF0(2800), 0xCE4(3300), 0xE74(3700), 0x125C(4700) RPM
+ * Thermal: 9 sensor devices (TMD1-TMD9) + TZ51-TZ57, TZ0_-TZ3_
+ */
+
+/*
+ * ============================================================
+ * DISPLAY
+ * ============================================================
+ * DPLB: HID QCOM0C70 — Display Port / panel bridge
+ * GPU0: HID QCOM0C36 — Purwa Adreno GPU
+ *   Dependencies: MMU0, MMU1, IMM0, IMM1, PEP0, PMIC, PILC, RPEN, TREE, SCM0
+ *   GPU firmware: qcom/x1p26100/SAMSUNG/galaxy-book4-edge-15/qcdxkmsucpurwa.mbn
+ *                 (path is a placeholder — extract from Windows driver store)
+ * Panel: 15.6" — AMOLED or LCD TBD (check Windows display driver INF)
+ */
+
+/*
+ * ============================================================
+ * CAMERAS (present but may be disabled/unused in laptop config)
+ * ============================================================
+ * CAMP (primary), CAMS (secondary), CAMF (front),
+ * CAMI (IR), CAMT (thermal?), CAMU (ultrawide?)
+ * 6 camera nodes — typical for Samsung laptop with IR+RGB front cam
+ */
+
+/*
+ * ============================================================
+ * BOARD-SPECIFIC GPIO NOTES
+ * ============================================================
+ * GPIO controller: GIO0 (referenced throughout DSDT)
+ * ECKB keyboard int:  GPIO 0x80 (128)
+ * AUCD codec reset:   GPIO 0xBF (191)
+ * AUCD codec int:     GPIO 0xCC (204)
+ * AUCD codec en:      GPIO 0x1C0 (448)
+ * BTH0 Bluetooth:     GPIO 0x17(23), 0x19(25), 0x23(35)
+ * USB3/4 retimer:     GPIO 0x17(23), 0x19(25), 0x23(35) via I2C7
+ *
+ * Full GPIO mapping requires cross-referencing GIO0 pinctrl
+ * against x1p42100.dtsi pinctrl node addresses.
+ */
+
+/*
+ * ============================================================
+ * FIRMWARE BLOBS NEEDED
+ * ============================================================
+ * Extract from Windows: C:\Windows\System32\DriverStore\FileRepository\
+ *
+ * GPU:    qcom/x1p26100/SAMSUNG/galaxy-book4-edge-15/qcdxkmsuc*.mbn
+ * ADSP:   qcom/x1p26100/SAMSUNG/galaxy-book4-edge-15/adsp*.mbn
+ * CDSP:   qcom/x1p26100/SAMSUNG/galaxy-book4-edge-15/cdsp*.mbn
+ * WPSS:   qcom/x1p26100/SAMSUNG/galaxy-book4-edge-15/wpss*.mbn
+ * WiFi:   ath12k/WCN*/hw*/...  (check WCN model from PCI ID first)
+ * BT:     qcom/hpnv21*.bin
+ * Audio:  qcom/x1p26100/SAMSUNG/galaxy-book4-edge-15/qdsp6sw.mbn (ADSP)
+ *
+ * Place at: /lib/firmware/qcom/x1p26100/SAMSUNG/galaxy-book4-edge-15/
+ */
+
+/*
+ * ============================================================
+ * TODO / OPEN QUESTIONS
+ * ============================================================
+ * 1. Confirm x1p42100.dtsi CPU count — if it has only 8 MPIDRs,
+ *    use it directly. If 12, delete cluster2 nodes here.
+ *
+ * 2. SAMM0851 audio codec: need new DT binding upstream.
+ *    File under Documentation/devicetree/bindings/sound/
+ *    Reference: CA09144D SUB ID, AUCD\SAMM0851 child name.
+ *
+ * 3. Samsung EC (ECTC/EMEC/SSEC0001): Samsung-specific embedded
+ *    controller for battery, keyboard, fan, lid. Likely needs
+ *    samsung-laptop-ec driver (does not exist upstream yet).
+ *
+ * 4. USB-C retimer on I2C7 (IC19): identify chip from Windows INF
+ *    (check qcusbcretimer*.inf in driver store).
+ *
+ * 5. Panel identification: run "wmic path Win32_VideoController get *"
+ *    on Windows to get panel EDID/model string.
+ *
+ * 6. WiFi chip identification: check Device Manager PCI VEN/DEV ID
+ *    for the PCIe WiFi device to confirm WCN6855/WCN7850/etc.
+ *
+ * 7. Stubble HWID: run fwupdtool hwids (or equivalent PowerShell)
+ *    and submit to github.com/ubuntu/stubble hwids/ directory.
+ */
