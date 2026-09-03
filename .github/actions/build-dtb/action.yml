@@ -1,0 +1,70 @@
+name: 'Build Purwa Book4 Edge DTB'
+description: 'Preprocess and compile the board DTS against a pinned mainline kernel qcom/dts + dt-bindings tree'
+
+inputs:
+  dts-path:
+    description: 'Path to the .dts file to build, relative to repo root'
+    required: false
+    default: 'dts/x1p26100-samsung-galaxy-book4-edge-15.dts'
+  linux-ref:
+    description: 'torvalds/linux commit SHA to pull qcom dts + dt-bindings headers from (bump deliberately, do not track a moving branch)'
+    required: false
+    default: '786262be6048deab760f68c8acc2c85607165894'
+
+outputs:
+  dtb-path:
+    description: 'Path to the compiled .dtb, relative to repo root'
+    value: ${{ steps.compile.outputs.dtb-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install dtc
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq device-tree-compiler
+
+    - name: Cache kernel dts/bindings tree
+      id: kernel-cache
+      uses: actions/cache@v4
+      with:
+        path: linux-src
+        key: linux-headers-${{ inputs.linux-ref }}
+
+    - name: Fetch kernel dts/bindings tree
+      if: steps.kernel-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        git clone --filter=blob:none --no-checkout https://github.com/torvalds/linux.git linux-src
+        cd linux-src
+        git sparse-checkout set arch/arm64/boot/dts/qcom include/dt-bindings include/uapi/linux
+        git checkout "${{ inputs.linux-ref }}"
+
+    - name: Preprocess DTS
+      shell: bash
+      run: |
+        cpp -nostdinc -undef -x assembler-with-cpp \
+          -I linux-src/arch/arm64/boot/dts/qcom \
+          -I linux-src/include \
+          "${{ inputs.dts-path }}" \
+          -o preprocessed.dts
+
+    - name: Compile DTB
+      id: compile
+      shell: bash
+      run: |
+        BASENAME="$(basename "${{ inputs.dts-path }}" .dts)"
+        dtc -I dts -O dtb -o "${BASENAME}.dtb" preprocessed.dts 2>dtc.log
+        DTC_EXIT=$?
+        cat dtc.log
+        if [ "$DTC_EXIT" -ne 0 ]; then
+          echo "::error::dtc failed with exit code $DTC_EXIT"
+          exit "$DTC_EXIT"
+        fi
+        echo "dtb-path=${BASENAME}.dtb" >> "$GITHUB_OUTPUT"
+
+    - name: Sanity check DTB (model/compatible strings)
+      shell: bash
+      run: |
+        fdtdump "${{ steps.compile.outputs.dtb-path }}" | grep -E "model =|compatible =" | head -5
