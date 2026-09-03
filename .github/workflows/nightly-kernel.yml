@@ -1,0 +1,116 @@
+name: Nightly kernel build
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      linux-ref:
+        description: 'Branch, tag, or commit SHA of torvalds/linux to build'
+        required: false
+        default: 'master'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-kernel-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential flex bison libssl-dev \
+            libelf-dev bc rsync ccache dwarves device-tree-compiler
+
+      # No CROSS_COMPILE / cross-toolchain needed — this runner is itself
+      # ARM64, so this is a native build, not a cross-compile.
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-nightly-${{ github.run_id }}
+          restore-keys: |
+            ccache-nightly-
+
+      - name: Shallow clone kernel source
+        run: |
+          REF="${{ inputs.linux-ref || 'master' }}"
+          git clone --depth 1 https://github.com/torvalds/linux.git linux
+          # Fetch by ref name OR raw commit SHA (git clone --branch only
+          # accepts branches/tags, not arbitrary SHAs) then check it out.
+          git -C linux fetch --depth 1 origin "$REF"
+          git -C linux checkout FETCH_HEAD
+          git -C linux rev-parse HEAD > kernel-commit.txt
+          cat kernel-commit.txt
+
+      - name: Drop in board DTS
+        run: |
+          cp dts/x1p26100-samsung-galaxy-book4-edge-15.dts linux/arch/arm64/boot/dts/qcom/
+          MAKEFILE=linux/arch/arm64/boot/dts/qcom/Makefile
+          grep -q "x1p26100-samsung-galaxy-book4-edge-15.dtb" "$MAKEFILE" || \
+            echo 'dtb-$(CONFIG_ARCH_QCOM) += x1p26100-samsung-galaxy-book4-edge-15.dtb' >> "$MAKEFILE"
+
+      - name: Configure
+        working-directory: linux
+        env:
+          CCACHE_DIR: /home/runner/.ccache
+        run: |
+          export PATH="/usr/lib/ccache:$PATH"
+          make ARCH=arm64 defconfig
+          # Optional platform-specific fragment (wifi/nvme/i2c-hid/etc.) —
+          # create configs/purwa.config in this repo if/when you need one;
+          # this step is a no-op until that file exists.
+          if [ -f ../configs/purwa.config ]; then
+            ./scripts/kconfig/merge_config.sh -m .config ../configs/purwa.config
+            make ARCH=arm64 olddefconfig
+          fi
+
+      - name: Build kernel + modules + DTBs
+        working-directory: linux
+        env:
+          CCACHE_DIR: /home/runner/.ccache
+        run: |
+          export PATH="/usr/lib/ccache:$PATH"
+          make ARCH=arm64 -j"$(nproc)" Image.gz modules dtbs
+          ccache -s
+
+      - name: Verify board DTB built, package output
+        run: |
+          DTB=linux/arch/arm64/boot/dts/qcom/x1p26100-samsung-galaxy-book4-edge-15.dtb
+          test -f "$DTB"
+
+          fdtdump "$DTB" > fdtdump.txt 2>/dev/null
+          grep -E "model =|compatible =" fdtdump.txt > matches.txt || true
+          head -5 matches.txt
+
+          mkdir -p out/modules
+          cp linux/arch/arm64/boot/Image.gz out/
+          cp "$DTB" out/
+          cp kernel-commit.txt out/
+          make -C linux ARCH=arm64 INSTALL_MOD_PATH="$(pwd)/out/modules" modules_install
+          (cd linux && make -s kernelrelease) > out/kernelrelease.txt
+          cat out/kernelrelease.txt
+
+          tar -C out -czf nightly-kernel.tar.gz .
+          sha256sum nightly-kernel.tar.gz > nightly-kernel.tar.gz.sha256
+
+      - name: Publish nightly prerelease
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "Nightly build ($(date -u +%Y-%m-%dT%H:%MZ))"
+          prerelease: true
+          body_path: out/kernelrelease.txt
+          files: |
+            nightly-kernel.tar.gz
+            nightly-kernel.tar.gz.sha256
