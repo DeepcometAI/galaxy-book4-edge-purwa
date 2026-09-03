@@ -1,0 +1,24 @@
+name: Build check
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build DTB
+        id: build
+        uses: ./.github/actions/build-dtb
+
+      - name: Upload DTB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1p26100-book4-edge-dtb-${{ github.sha }}
+          path: ${{ steps.build.outputs.dtb-path }}
+          retention-days: 14
+          if-no-files-found: error
