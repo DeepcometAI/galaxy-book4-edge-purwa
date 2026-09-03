@@ -67,7 +67,6 @@ runs:
     - name: Sanity check DTB (model/compatible strings)
       shell: bash
       run: |
-        fdtdump "${{ steps.compile.outputs.dtb-path }}" | grep -E "model =|compatible =" | head -5
         fdtdump "${{ steps.compile.outputs.dtb-path }}" > fdtdump.txt 2>/dev/null
         grep -E "model =|compatible =" fdtdump.txt > matches.txt || true
         head -5 matches.txt
