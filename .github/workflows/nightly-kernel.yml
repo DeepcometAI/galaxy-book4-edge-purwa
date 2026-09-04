@@ -103,12 +103,16 @@ jobs:
           tar -C out -czf nightly-kernel.tar.gz .
           sha256sum nightly-kernel.tar.gz > nightly-kernel.tar.gz.sha256
 
+      - name: Compute release metadata
+        id: meta
+        run: echo "timestamp=$(date -u +%Y-%m-%dT%H:%MZ)" >> "$GITHUB_OUTPUT"
+
       - name: Publish nightly prerelease
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: "Nightly build ($(date -u +%Y-%m-%dT%H:%MZ))"
+          name: "Nightly build (${{ steps.meta.outputs.timestamp }})"
           prerelease: true
           body_path: out/kernelrelease.txt
           files: |
