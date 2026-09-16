@@ -111,8 +111,15 @@ The device name in Windows Device Manager reads:
 Snapdragon(R) X - X126100 - Qualcomm(R) Hexagon(TM) NPU
 ```
 `X126100` here is the internal Qualcomm NPU variant ID, not the full SoC part number.
-The full X1-26-100 part is physically SM8380 Purwa die, sharing the same silicon as the
-X1P-42-100 (also SM8380 Purwa) but with 4 CPU cores fused off and a lower GPU bin.
+The full X1-26-100 part is physically SM8380 Purwa die — the same already-fused, 8-core
+silicon configuration as X1P-42-100 (also SM8380 Purwa, 4 of 12 cores fused off the same
+way). X1P-26-100 and X1P-42-100 are sibling SKUs binned from the same 8-core-fused wafer,
+**not** a further-fused variant of X1P-42-100 — the two SKUs differ by CPU clock
+speed only (X1P-26-100 at ~2.98GHz vs X1P-42-100 at 3.4GHz); both share the identical
+Adreno X1-45 GPU bin (confirmed via NotebookCheck spec pages — 1.7 TFLOPS on both). The
+12-core, all-cores-active configuration belongs to the Hamoa die family (X1E80100/X1P-64-100),
+a related but separate silicon design — see Section 3 for the actual fusing (relative to
+the theoretical full 12-core Purwa die, not to X1P-42-100).
 
 ### ACPI PM Profile
 
@@ -159,8 +166,10 @@ All 12 GIC CPU interface entries decoded:
 
 > **Key finding:** Cluster 2 (CPUs 8–11) is present in silicon (GIC redistributors
 > are allocated) but firmware marks them `Processor Enabled = 0`. This is how Qualcomm
-> bins the SM8380 die to create the X1-26-100 SKU from the same physical wafer as the
-> X1P-42-100. The GICR stride is `0x40000` (256KB) per CPU.
+> bins the full 12-core SM8380 Purwa die down to the 8-core X1-26-100 SKU. X1P-42-100
+> undergoes this exact same cluster-2 fusing — it is not a 12-core reference point, it's
+> the sibling 8-core SKU clocked at 3.4GHz instead of X1P-26-100's 3.0GHz. The GICR
+> stride is `0x40000` (256KB) per CPU.
 
 ### PPTT Structure (from `pptt.dsl`)
 
@@ -401,7 +410,7 @@ This panel has no upstream binding. Must be submitted alongside the board DTS.
 |---|---|
 | **ACPI HID** | `QCOM0C36` |
 | **ACPI device** | `GPU0` |
-| **GPU family** | Adreno (Purwa variant — lower bin than X1P-42-100) |
+| **GPU family** | Adreno X1-45 — same bin as sibling X1P-42-100, lower bin than X1E's Adreno X1-85 |
 | **Zap shader firmware** | `qcdxkmsucpurwa.mbn` ← Purwa-specific |
 | **Generic 8380 shader** | `qcdxkmsuc8380.mbn` |
 | **VSS firmware** | `qcvss8380.mbn`, `qcvss8380_pa.mbn` |
@@ -414,11 +423,11 @@ This panel has no upstream binding. Must be submitted alongside the board DTS.
 ### Firmware Path (Linux)
 
 ```
-/lib/firmware/qcom/sm8380/SAMSUNG/NP750XQB/qcdxkmsucpurwa.mbn
-/lib/firmware/qcom/sm8380/SAMSUNG/NP750XQB/qcdxkmsuc8380.mbn
-/lib/firmware/qcom/sm8380/SAMSUNG/NP750XQB/qcvss8380.mbn
-/lib/firmware/qcom/sm8380/SAMSUNG/NP750XQB/qcvss8380_pa.mbn
-/lib/firmware/qcom/sm8380/SAMSUNG/NP750XQB/qcav1e8380.mbn
+/lib/firmware/qcom/x1p26100/SAMSUNG/NP750XQB/qcdxkmsucpurwa.mbn
+/lib/firmware/qcom/x1p26100/SAMSUNG/NP750XQB/qcdxkmsuc8380.mbn
+/lib/firmware/qcom/x1p26100/SAMSUNG/NP750XQB/qcvss8380.mbn
+/lib/firmware/qcom/x1p26100/SAMSUNG/NP750XQB/qcvss8380_pa.mbn
+/lib/firmware/qcom/x1p26100/SAMSUNG/NP750XQB/qcav1e8380.mbn
 ```
 
 ---
@@ -624,11 +633,16 @@ BT-specific calibration is embedded in the shared board data file.
 | **USB4 retimer** | `IC19` on I2C7 (referenced in USB4 `_CRS`) |
 | **Retimer chip** | Unknown — identify from Windows INF `qcusbcretimer*.inf` |
 
-### Physical Ports (inferred)
+### Physical Ports (confirmed on physical hardware)
 
-- 2× USB-C (USB4/TB4 on right side — typical Galaxy Book4 Edge layout)
-- 1× USB-A 3.1 (left side)
-- 1× USB-A 3.1 (right side)
+> **Orientation note:** left/right below are as seen from the **back of the laptop**
+> (i.e. looking at the ports from behind the lid, hinge facing you) — **not** from the
+> user's seated/keyboard-facing perspective. Facing the keyboard, these sides are
+> reversed from what's listed here.
+
+- 2× USB-C (USB4/TB4)
+- 1× USB-A 3.1 (left side only)
+- 1× HDMI (right side)
 - 1× MicroSD slot (SDC2)
 
 ---
@@ -1100,7 +1114,7 @@ SM8380 devices. Ignore for your board.
 ### Recommended Linux Firmware Layout
 
 ```
-/lib/firmware/qcom/sm8380/SAMSUNG/NP750XQB/
+/lib/firmware/qcom/x1p26100/SAMSUNG/NP750XQB/
 ├── qcdxkmsucpurwa.mbn       # GPU zap shader (Purwa-specific)
 ├── qcdxkmsuc8380.mbn        # GPU zap shader (generic)
 ├── qcav1e8380.mbn           # AV1 decoder
@@ -1164,15 +1178,19 @@ SM8380 devices. Ignore for your board.
 arch/arm64/boot/dts/qcom/x1p26100-samsung-galaxy-book4-edge-15.dts
 ```
 
-### SoC DTSI Required
+### SoC DTSI
 
 ```
-arch/arm64/boot/dts/qcom/x1p26100.dtsi
+arch/arm64/boot/dts/qcom/purwa.dtsi
 ```
-This does not yet exist. It must be derived from `x1p42100.dtsi` with:
-- Cluster 2 (CPUs 8–11) removed
-- GPU binned differently (lower ALU count — same firmware path)
-- Otherwise identical Purwa topology
+This already exists upstream (confirmed against mainline `torvalds/linux`) and is shared
+**unchanged** by both X1P-42-100 and X1P-26-100 — no separate `x1p26100.dtsi` needs to be
+derived. Both SKUs have identical CPU topology (cluster 2 already absent/fused in the
+silicon this dtsi describes) and identical Adreno X1-45 GPU bin; only clock speed differs
+between the two, which is a runtime/OPP table concern, not a devicetree topology difference.
+The board-specific include is `purwa.dtsi` + `hamoa-pmics.dtsi` (see the board DTS in this
+repo's `dts/` directory) — `purwa-pmics.dtsi` does not exist upstream, this was already
+resolved in this repo's board DTS.
 
 ### New Binding Files Required
 
@@ -1251,8 +1269,8 @@ BoardVersion: SGLB971A26-C01-G001-S0001+10.0.26100
 
 | Task | File | Complexity |
 |---|---|---|
-| New SoC DTSI | `arch/arm64/boot/dts/qcom/x1p26100.dtsi` | Medium |
-| New board DTS | `arch/arm64/boot/dts/qcom/x1p26100-samsung-galaxy-book4-edge-15.dts` | Medium |
+| SoC DTSI | ~~`arch/arm64/boot/dts/qcom/x1p26100.dtsi`~~ — not needed, `purwa.dtsi` exists upstream | Done |
+| Board DTS | `arch/arm64/boot/dts/qcom/x1p26100-samsung-galaxy-book4-edge-15.dts` | Done (this repo) |
 | BOE panel binding | `Documentation/devicetree/bindings/display/panel/boe,nv156fhm-ns0.yaml` | Low |
 | Samsung EC driver | `drivers/input/keyboard/samsung-ec-hid.c` (or extend existing) | High |
 | SAMM0851 codec binding | `Documentation/devicetree/bindings/sound/samsung,samm0851.yaml` | High |
