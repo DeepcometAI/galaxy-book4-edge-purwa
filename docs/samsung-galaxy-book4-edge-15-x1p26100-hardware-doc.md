@@ -819,13 +819,13 @@ from the closest existing WCD codec driver (likely `wcd938x` or `wcd939x` as bas
 | **ACPI UID** | `1` |
 | **Chemistry** | Li-Ion (`LION`) |
 | **Manufacturer** | SAMSUNG Electronics |
-| **Design capacity** | **95,000 mWh (95 Wh)** |
+| **Design capacity** | **61,200 mWh (61.2 Wh)** |
 | **Design voltage** | 35,000 mV (35V — 10S Li-Ion pack: ~3.5V × 10) |
 | **Warning voltage** | 25,000 mV (25V) |
 | **Cycle count** | Not reported (0xFFFFFFFF) |
 | **Control** | Samsung EC (`ECTC.PBTE`, `ECTC.B1EX` fields) |
 
-> **Battery note:** The 95 Wh capacity at 35V nominal suggests a 10-cell series pack.
+> **Battery note:** The 95 Wh capacity at 35V nominal from extracted information suggests a 10-cell series pack.
 > Samsung Galaxy Book4 Edge 15.6" official spec lists 61.4 Wh — the BIXP values
 > may use different units or represent a different pack configuration. The 35V design
 > voltage is unusual; verify against physical label when possible.
