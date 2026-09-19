@@ -1,3 +1,4 @@
+> This document was generated using AI from the extracted information
 # Samsung Galaxy Book4 Edge 15.6" (NP750XQB-KA1IN)
 ## Complete Hardware Reference — X1P-26-100 / SM8380 Purwa Die
 
