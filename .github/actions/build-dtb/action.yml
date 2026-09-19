@@ -5,7 +5,7 @@ inputs:
   dts-path:
     description: 'Path to the .dts file to build, relative to repo root'
     required: false
-    default: 'dts/x1p42100-samsung-galaxy-book4-edge-np750xqa.dts'
+    default: 'dts/x1p26100-samsung-galaxy-book4-edge-15.dts'
   linux-ref:
     description: 'torvalds/linux commit SHA to pull qcom dts + dt-bindings headers from (bump deliberately, do not track a moving branch)'
     required: false
